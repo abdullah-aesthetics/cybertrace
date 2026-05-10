@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+env/
+.env
+
+# Database (will be created fresh on Railway)
+database/cybertrace.db
+database/rf_model.pkl
+database/training_log.json
+database/feed_cache/
+
+# Uploads and reports (generated at runtime)
+uploads/
+reports/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CyberTrace v2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --bg:       #020408;
+  --bg2:      #030609;
+  --panel:    #060d14;
+  --card:     #08121c;
+  --border:   #0d2035;
+  --border2:  #0f2840;
+  --accent:   #00ffe7;
+  --accent2:  #0af;
+  --red:      #ff2d55;
+  --orange:   #ff8c00;
+  --yellow:   #ffe600;
+  --green:    #00ff88;
+  --purple:   #bf5fff;
+  --text:     #c8e6f5;
+  --muted:    #3a6080;
+  --dim:      #1a3550;
+  --mono:     'Share Tech Mono', monospace;
+  --display:  'Orbitron', sans-serif;
+  --body:     'Rajdhani', sans-serif;
+  --glow:     0 0 20px rgba(0,255,231,.15);
+  --glow-red: 0 0 20px rgba(255,45,85,.2);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; background:var(--bg); color:var(--text); font-family:var(--body); overflow-x:hidden; }
+
+/* ── Scanline overlay ── */
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.08) 2px, rgba(0,0,0,.08) 4px);
+}
+
+/* ── Grid noise texture ── */
+body::after {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9998; opacity:.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ── Shell layout ── */
+.shell { display:grid; grid-template-columns:220px 1fr; grid-template-rows:58px 1fr; min-height:100vh; position:relative; }
+
+/* ── Corner decorations ── */
+.corner { position:fixed; width:60px; height:60px; pointer-events:none; z-index:100; }
+.corner-tl { top:58px; left:220px; border-top:1px solid var(--accent); border-left:1px solid var(--accent); opacity:.3; }
+.corner-tr { top:58px; right:0; border-top:1px solid var(--accent); border-right:1px solid var(--accent); opacity:.3; }
+.corner-bl { bottom:0; left:220px; border-bottom:1px solid var(--accent); border-left:1px solid var(--accent); opacity:.3; }
+.corner-br { bottom:0; right:0; border-bottom:1px solid var(--accent); border-right:1px solid var(--accent); opacity:.3; }
+
+/* ── Topbar ── */
+.topbar {
+  grid-column:1/-1;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 24px 0 0;
+  background:var(--panel);
+  border-bottom:1px solid var(--border2);
+  position:relative; overflow:hidden;
+}
+.topbar::after {
+  content:''; position:absolute; bottom:0; left:0; right:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation:scan-line 4s linear infinite;
+}
+@keyframes scan-line { 0%{opacity:0} 50%{opacity:1} 100%{opacity:0} }
+
+.logo-wrap {
+  display:flex; align-items:center; gap:0;
+  background:linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  padding:0 28px; height:100%; clip-path:polygon(0 0, 100% 0, 92% 100%, 0 100%);
+  margin-right:24px; flex-shrink:0;
+}
+.logo-icon { width:28px; height:28px; margin-right:10px; }
+.logo-icon svg { width:100%; height:100%; fill:var(--bg); }
+.logo-text { font-family:var(--display); font-size:15px; font-weight:900; color:var(--bg); letter-spacing:2px; }
+.logo-ver { font-family:var(--mono); font-size:9px; color:rgba(0,0,0,.5); margin-left:8px; margin-top:2px; }
+
+.topbar-center { flex:1; display:flex; align-items:center; gap:20px; }
+.sys-stat { display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10px; color:var(--muted); }
+.sys-dot { width:6px; height:6px; border-radius:50%; }
+.sys-dot.green { background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 2s infinite; }
+.sys-dot.amber { background:var(--yellow); box-shadow:0 0 8px var(--yellow); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.topbar-right { display:flex; align-items:center; gap:20px; }
+.clock-wrap { text-align:right; }
+.clock-time { font-family:var(--display); font-size:14px; font-weight:600; color:var(--accent); letter-spacing:2px; }
+.clock-date { font-family:var(--mono); font-size:9px; color:var(--muted); margin-top:1px; }
+
+/* ── Sidebar ── */
+.sidebar {
+  background:var(--panel);
+  border-right:1px solid var(--border2);
+  padding:16px 10px;
+  display:flex; flex-direction:column; gap:2px;
+  position:relative;
+}
+.sidebar::after {
+  content:''; position:absolute; top:0; right:0; bottom:0; width:1px;
+  background:linear-gradient(180deg, transparent, var(--accent) 50%, transparent);
+  opacity:.2;
+}
+
+.nav-section { font-family:var(--display); font-size:8px; font-weight:700; color:var(--muted); letter-spacing:2px; padding:12px 8px 4px; text-transform:uppercase; }
+
+.nav-item {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 10px; border-radius:4px;
+  cursor:pointer; font-family:var(--body); font-size:13px; font-weight:600;
+  color:var(--muted); transition:all .2s; border:none; background:none; width:100%; text-align:left;
+  position:relative; letter-spacing:.5px;
+}
+.nav-item::before {
+  content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
+  width:2px; height:0; background:var(--accent);
+  transition:height .2s; border-radius:0 2px 2px 0;
+}
+.nav-item:hover { color:var(--text); background:rgba(0,255,231,.04); }
+.nav-item:hover::before { height:60%; }
+.nav-item.active { color:var(--accent); background:rgba(0,255,231,.06); }
+.nav-item.active::before { height:70%; box-shadow:0 0 8px var(--accent); }
+.nav-item svg { width:14px; height:14px; flex-shrink:0; opacity:.7; }
+.nav-item.active svg { opacity:1; }
+.nav-badge { margin-left:auto; background:var(--accent); color:var(--bg); font-family:var(--mono); font-size:9px; font-weight:700; padding:2px 6px; border-radius:2px; }
+
+.sidebar-footer { margin-top:auto; padding:12px 8px; border-top:1px solid var(--border); }
+.sidebar-footer-text { font-family:var(--mono); font-size:9px; color:var(--dim); line-height:1.8; }
+
+/* ── Main ── */
+.main { padding:24px 28px; overflow-y:auto; background:var(--bg2); }
+.section { display:none; animation:fadeIn .3s ease; }
+.section.active { display:block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── Page headers ── */
+.page-header { margin-bottom:24px; }
+.page-title { font-family:var(--display); font-size:18px; font-weight:700; color:var(--accent); letter-spacing:2px; text-transform:uppercase; }
+.page-sub { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:4px; }
+.page-line { height:1px; background:linear-gradient(90deg, var(--accent), transparent); margin-top:12px; opacity:.3; }
+
+/* ── Cards ── */
+.card {
+  background:var(--card);
+  border:1px solid var(--border2);
+  border-radius:2px;
+  padding:20px;
+  position:relative;
+  overflow:hidden;
+}
+.card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:1px;
+  background:linear-gradient(90deg, var(--accent), transparent);
+  opacity:.2;
+}
+.card-sm { padding:14px 16px; }
+.card-title { font-family:var(--display); font-size:9px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:2px; margin-bottom:14px; }
+
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+
+/* ── Stat cards ── */
+.stat-card {
+  background:var(--card); border:1px solid var(--border2); border-radius:2px;
+  padding:18px; position:relative; overflow:hidden;
+}
+.stat-card::after {
+  content:''; position:absolute; bottom:0; left:0; right:0; height:2px;
+  background:var(--accent); opacity:.1;
+}
+.stat-label { font-family:var(--display); font-size:8px; font-weight:700; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:8px; }
+.stat-value { font-family:var(--display); font-size:28px; font-weight:900; line-height:1; }
+.stat-sub { font-family:var(--mono); font-size:10px; color:var(--muted); margin-top:6px; }
+
+/* ── Forms ── */
+.field { display:flex; flex-direction:column; gap:5px; }
+.field label { font-family:var(--display); font-size:8px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:2px; }
+.field input, .field select, .field textarea {
+  background:var(--panel); border:1px solid var(--border2); border-radius:2px;
+  color:var(--text); padding:10px 12px; font-size:13px; font-family:var(--mono);
+  outline:none; transition:all .2s; letter-spacing:.5px;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color:var(--accent); box-shadow:0 0 0 1px rgba(0,255,231,.15), var(--glow);
+}
+.field select option { background:var(--card); }
+.field textarea { resize:vertical; min-height:120px; font-size:12px; line-height:1.7; }
+
+/* ── Buttons ── */
+.btn {
+  padding:10px 22px; border-radius:2px; font-family:var(--display);
+  font-size:10px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+  cursor:pointer; border:none; transition:all .2s; white-space:nowrap;
+  position:relative; overflow:hidden;
+}
+.btn::after {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(135deg, rgba(255,255,255,.05), transparent);
+}
+.btn-primary {
+  background:transparent; color:var(--accent);
+  border:1px solid var(--accent);
+  box-shadow:inset 0 0 20px rgba(0,255,231,.03), 0 0 12px rgba(0,255,231,.1);
+}
+.btn-primary:hover { background:rgba(0,255,231,.08); box-shadow:0 0 24px rgba(0,255,231,.2); }
+.btn-primary:disabled { opacity:.4; cursor:not-allowed; }
+.btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border2); }
+.btn-ghost:hover { color:var(--text); border-color:var(--muted); }
+.btn-red { background:transparent; color:var(--red); border:1px solid rgba(255,45,85,.4); }
+.btn-red:hover { background:rgba(255,45,85,.08); box-shadow:var(--glow-red); }
+.btn-sm { padding:6px 14px; font-size:9px; }
+
+/* ── Table ── */
+.tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.tbl th { text-align:left; padding:10px 14px; font-family:var(--display); font-size:8px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:2px; border-bottom:1px solid var(--border2); }
+.tbl td { padding:12px 14px; border-bottom:1px solid rgba(13,32,53,.8); font-family:var(--mono); font-size:11px; }
+.tbl tr:hover td { background:rgba(0,255,231,.02); }
+.tbl tr:last-child td { border-bottom:none; }
+
+/* ── Badges ── */
+.badge { display:inline-block; padding:3px 9px; border-radius:2px; font-family:var(--display); font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+.badge-red    { background:rgba(255,45,85,.12);  color:var(--red);    border:1px solid rgba(255,45,85,.3); }
+.badge-orange { background:rgba(255,140,0,.12);  color:var(--orange); border:1px solid rgba(255,140,0,.3); }
+.badge-yellow { background:rgba(255,230,0,.12);  color:var(--yellow); border:1px solid rgba(255,230,0,.3); }
+.badge-green  { background:rgba(0,255,136,.12);  color:var(--green);  border:1px solid rgba(0,255,136,.3); }
+.badge-blue   { background:rgba(0,170,255,.12);  color:var(--accent2);border:1px solid rgba(0,170,255,.3); }
+.badge-purple { background:rgba(191,95,255,.12); color:var(--purple); border:1px solid rgba(191,95,255,.3); }
+.badge-gray   { background:rgba(58,96,128,.12);  color:var(--muted);  border:1px solid rgba(58,96,128,.3); }
+
+/* ── Terminal ── */
+.terminal {
+  background:#010508; border:1px solid var(--border2); border-radius:2px;
+  padding:14px; font-family:var(--mono); font-size:11px; line-height:1.9;
+  max-height:220px; overflow-y:auto;
+  box-shadow:inset 0 0 40px rgba(0,0,0,.5);
+}
+.terminal::before { content:'// SYSTEM LOG'; display:block; color:var(--dim); font-size:9px; margin-bottom:8px; letter-spacing:2px; }
+.log-entry { display:flex; gap:12px; }
+.log-time  { color:var(--dim); flex-shrink:0; }
+.log-info  { color:var(--accent); }
+.log-warn  { color:var(--yellow); }
+.log-error { color:var(--red); }
+.log-dim   { color:var(--muted); }
+
+/* ── Spinner ── */
+.spinner { width:14px; height:14px; border:1px solid rgba(0,255,231,.2); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; display:inline-block; vertical-align:middle; margin-right:8px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* ── Gauge ── */
+.gauge-wrap { display:flex; align-items:center; gap:24px; }
+
+/* ── Threat badge ── */
+.threat-badge { display:inline-block; padding:4px 14px; border-radius:2px; font-family:var(--display); font-size:9px; font-weight:700; letter-spacing:2px; margin-top:8px; }
+
+/* ── Alerts ── */
+.alert { padding:10px 16px; border-radius:2px; font-family:var(--mono); font-size:11px; margin-bottom:10px; display:flex; align-items:center; gap:10px; }
+.alert-success { background:rgba(0,255,136,.06); border:1px solid rgba(0,255,136,.2); color:var(--green); }
+.alert-error   { background:rgba(255,45,85,.06);  border:1px solid rgba(255,45,85,.2);  color:var(--red); }
+.alert-warn    { background:rgba(255,230,0,.06);  border:1px solid rgba(255,230,0,.2);  color:var(--yellow); }
+.alert-info    { background:rgba(0,170,255,.06);  border:1px solid rgba(0,170,255,.2);  color:var(--accent2); }
+
+/* ── OSINT rows ── */
+.osint-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(13,32,53,.9); }
+.osint-item:last-child { border-bottom:none; }
+.osint-key { font-family:var(--display); font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+.osint-val { font-family:var(--mono); font-size:11px; text-align:right; max-width:200px; word-break:break-all; color:var(--text); }
+
+/* ── Rec items ── */
+.rec-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid rgba(13,32,53,.9); font-family:var(--body); font-size:13px; }
+.rec-item:last-child { border-bottom:none; }
+.rec-num { width:20px; height:20px; border-radius:2px; background:rgba(0,255,231,.08); color:var(--accent); font-family:var(--display); font-size:9px; font-weight:700; display:grid; place-items:center; flex-shrink:0; border:1px solid rgba(0,255,231,.2); }
+
+/* ── Tabs ── */
+.tab-row { display:flex; gap:0; margin-bottom:16px; border-bottom:1px solid var(--border2); }
+.tab { padding:8px 18px; font-family:var(--display); font-size:9px; font-weight:700; letter-spacing:1.5px; color:var(--muted); cursor:pointer; border:none; background:none; border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .2s; text-transform:uppercase; }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.tab:hover { color:var(--text); }
+
+/* ── World map ── */
+#world-map { height:440px; border-radius:2px; z-index:1; }
+.leaflet-container { background:#010508 !important; }
+
+/* ── Packet stream ── */
+.pkt-row { display:grid; grid-template-columns:1fr 1fr 72px 62px 62px 62px; gap:6px; padding:5px 12px; border-bottom:1px solid rgba(13,32,53,.6); font-family:var(--mono); font-size:10px; }
+.pkt-row:hover { background:rgba(0,255,231,.02); }
+.pkt-suspicious { border-left:2px solid var(--red); }
+.pkt-head { font-family:var(--display); font-size:8px; font-weight:700; color:var(--dim); letter-spacing:1px; text-transform:uppercase; }
+
+/* ── Monitor btn ── */
+.monitor-btn { display:flex; align-items:center; gap:8px; padding:10px 20px; border-radius:2px; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:2px; cursor:pointer; border:none; transition:all .2s; text-transform:uppercase; }
+.monitor-btn.idle    { background:transparent; color:var(--accent); border:1px solid rgba(0,255,231,.3); }
+.monitor-btn.running { background:transparent; color:var(--red); border:1px solid rgba(255,45,85,.4); }
+.rec-dot { width:7px; height:7px; border-radius:50%; background:currentColor; animation:blink 1s infinite; }
+
+/* ── IOC tags ── */
+.ioc-tag { display:inline-flex; align-items:center; gap:4px; background:var(--panel); border:1px solid var(--border2); border-radius:2px; padding:3px 8px; font-family:var(--mono); font-size:10px; margin:2px; cursor:pointer; transition:all .15s; color:var(--text); }
+.ioc-tag:hover { border-color:var(--accent); color:var(--accent); box-shadow:0 0 8px rgba(0,255,231,.1); }
+
+/* ── Note cards ── */
+.note-card { background:var(--panel); border:1px solid var(--border2); border-radius:2px; padding:12px 14px; margin-bottom:8px; border-left:2px solid rgba(0,255,231,.3); }
+.note-author { font-family:var(--display); font-size:9px; font-weight:700; color:var(--accent); letter-spacing:1px; }
+.note-time { font-family:var(--mono); font-size:9px; color:var(--muted); }
+.note-body { font-family:var(--body); font-size:13px; margin-top:6px; color:var(--text); line-height:1.6; }
+
+/* ── Status select ── */
+.status-sel { background:var(--panel); border:1px solid var(--border2); border-radius:2px; color:var(--text); padding:7px 10px; font-family:var(--mono); font-size:11px; outline:none; cursor:pointer; }
+
+/* ── ML bars ── */
+.ml-bar-wrap { margin-bottom:10px; }
+.ml-bar-label { display:flex; justify-content:space-between; font-family:var(--mono); font-size:10px; color:var(--muted); margin-bottom:4px; }
+.prog-wrap { background:var(--panel); border-radius:0; height:4px; overflow:hidden; border:1px solid var(--border); }
+.prog-bar  { height:100%; background:linear-gradient(90deg, var(--accent2), var(--accent)); transition:width .8s ease; }
+
+/* ── Empty ── */
+.empty { text-align:center; padding:40px 20px; color:var(--dim); }
+.empty-icon { font-size:28px; margin-bottom:10px; opacity:.4; }
+.empty-text { font-family:var(--mono); font-size:11px; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--dim); border-radius:0; }
+
+/* ── Risk ring glow ── */
+.ring-critical { filter:drop-shadow(0 0 8px #ff2d55); }
+.ring-high     { filter:drop-shadow(0 0 8px #ff8c00); }
+.ring-medium   { filter:drop-shadow(0 0 8px #ffe600); }
+.ring-clean    { filter:drop-shadow(0 0 8px #00ff88); }
+
+/* ── Scanning animation on investigate ── */
+@keyframes scanDown { 0%{top:0;opacity:.6} 100%{top:100%;opacity:0} }
+.scan-beam { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg, transparent, var(--accent), transparent); animation:scanDown 1.5s linear infinite; pointer-events:none; z-index:10; }
+</style>
+</head>
+<body>
+
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<div class="shell">
+
+<!-- ══ TOPBAR ══ -->
+<header class="topbar">
+  <div class="logo-wrap">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    </div>
+    <div class="logo-text">CYBERTRACE</div>
+    <div class="logo-ver">v2.0</div>
+  </div>
+
+  <div class="topbar-center">
+    <div class="sys-stat"><div class="sys-dot green"></div>SYSTEM ONLINE</div>
+    <div class="sys-stat"><div class="sys-dot amber"></div>THREAT FEEDS ACTIVE</div>
+    <div class="sys-stat"><div class="sys-dot green"></div>ML MODEL LOADED</div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="clock-wrap">
+      <div class="clock-time" id="clock">00:00:00</div>
+      <div class="clock-date" id="clock-date">---</div>
+    </div>
+  </div>
+</header>
+
+<!-- ══ SIDEBAR ══ -->
+<nav class="sidebar">
+  <div class="nav-section">Core</div>
+  <button class="nav-item active" onclick="nav('dashboard')" id="nav-dashboard">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Dashboard
+  </button>
+  <button class="nav-item" onclick="nav('investigate')" id="nav-investigate">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+    Investigate
+  </button>
+  <button class="nav-item" onclick="nav('map')" id="nav-map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+    World Map
+  </button>
+
+  <div class="nav-section">Analysis</div>
+  <button class="nav-item" onclick="nav('ioc')" id="nav-ioc">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    IOC Extractor
+  </button>
+  <button class="nav-item" onclick="nav('packets')" id="nav-packets">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    Packet Monitor
+  </button>
+  <button class="nav-item" onclick="nav('malware')" id="nav-malware">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    Malware Scan
+  </button>
+
+  <div class="nav-section">Management</div>
+  <button class="nav-item" onclick="nav('cases')" id="nav-cases">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    Case Files
+    <span class="nav-badge" id="case-badge">0</span>
+  </button>
+  <button class="nav-item" onclick="nav('ml')" id="nav-ml">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+    ML Retraining
+  </button>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-footer-text">
+      OSINT · FORENSICS · ML<br>
+      DEFENSIVE SECURITY PLATFORM<br>
+      © CYBERTRACE 2025
+    </div>
+  </div>
+</nav>
+
+<!-- ══ MAIN ══ -->
+<main class="main">
+
+<!-- DASHBOARD -->
+<div class="section active" id="section-dashboard">
+  <div class="page-header">
+    <div class="page-title">// Intelligence Dashboard</div>
+    <div class="page-sub">[ REAL-TIME THREAT OVERVIEW — ALL SYSTEMS NOMINAL ]</div>
+    <div class="page-line"></div>
+  </div>
+
+  <div class="grid-4" style="margin-bottom:16px">
+    <div class="stat-card">
+      <div class="stat-label">Total Cases</div>
+      <div class="stat-value" id="s-total" style="color:var(--accent)">0</div>
+      <div class="stat-sub">investigations</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Critical Threats</div>
+      <div class="stat-value" id="s-crit" style="color:var(--red)">0</div>
+      <div class="stat-sub" style="color:var(--red)">require action</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">High Risk</div>
+      <div class="stat-value" id="s-high" style="color:var(--orange)">0</div>
+      <div class="stat-sub">monitor closely</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Clean</div>
+      <div class="stat-value" id="s-clean" style="color:var(--green)">0</div>
+      <div class="stat-sub">no threats found</div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-title">Recent Investigations</div>
+      <div id="dash-recent"><div class="empty"><div class="empty-icon">◈</div><div class="empty-text">NO INVESTIGATIONS YET</div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Threat Distribution</div>
+      <div id="dash-chart"><div class="empty"><div class="empty-text">NO DATA</div></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">System Activity Log</div>
+    <div class="terminal" id="activity-log">
+      <div class="log-entry"><span class="log-time">--:--:--</span><span class="log-info">CYBERTRACE v2.0 — ALL MODULES INITIALIZED</span></div>
+      <div class="log-entry"><span class="log-time">--:--:--</span><span class="log-dim">AWAITING INVESTIGATION TARGET...</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- INVESTIGATE -->
+<div class="section" id="section-investigate">
+  <div class="page-header">
+    <div class="page-title">// Investigate Target</div>
+    <div class="page-sub">[ OSINT + ML + SHODAN + DNS + SSL + WHOIS + THREAT FEEDS ]</div>
+    <div class="page-line"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px; position:relative; overflow:hidden;">
+    <div class="card-title">Target Input</div>
+    <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:end">
+      <div class="field">
+        <label>Target — IP / Domain / Hash / URL / Email</label>
+        <input type="text" id="inv-target" placeholder="e.g. 185.220.101.45  or  malware.example.com"/>
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <select id="inv-type">
+          <option value="ip">IP Address</option>
+          <option value="domain">Domain</option>
+          <option value="hash">File Hash</option>
+          <option value="url">URL</option>
+          <option value="email">Email</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Investigator</label>
+        <input type="text" id="inv-name" placeholder="Name" style="width:130px"/>
+      </div>
+      <button class="btn btn-primary" id="inv-btn" onclick="runInvestigation()" style="align-self:end">⚡ EXECUTE</button>
+    </div>
+  </div>
+
+  <div id="inv-results" style="display:none">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Threat Assessment</div>
+      <div class="gauge-wrap">
+        <svg width="120" height="120" viewBox="0 0 120 120" id="gauge-svg">
+          <circle cx="60" cy="60" r="50" fill="none" stroke="#0d2035" stroke-width="8"/>
+          <circle cx="60" cy="60" r="50" fill="none" stroke-width="8" stroke-linecap="square"
+            id="gauge-ring" stroke-dasharray="314" stroke-dashoffset="314"
+            transform="rotate(-90 60 60)" style="transition:stroke-dashoffset 1.2s ease, stroke .3s"/>
+          <text x="60" y="54" text-anchor="middle" font-family="Orbitron" font-size="22" font-weight="900" fill="#c8e6f5" id="gauge-num">0</text>
+          <text x="60" y="70" text-anchor="middle" font-family="Orbitron" font-size="7" fill="#3a6080" letter-spacing="1">RISK SCORE</text>
+        </svg>
+        <div style="flex:1">
+          <div style="font-family:var(--display);font-size:42px;font-weight:900;line-height:1" id="result-score">—</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px">/ 100</div>
+          <div class="threat-badge" id="result-level">—</div>
+        </div>
+        <div style="flex:2;border-left:1px solid var(--border2);padding-left:20px">
+          <div class="card-title">Risk Factors</div>
+          <div id="risk-factors" style="font-family:var(--mono);font-size:10px;color:var(--muted);line-height:2"></div>
+        </div>
+        <div style="flex:1.5;border-left:1px solid var(--border2);padding-left:20px">
+          <div class="card-title">ML Prediction</div>
+          <div id="ml-result-panel"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-row">
+      <button class="tab active" onclick="showTab('tab-osint',this)">OSINT</button>
+      <button class="tab" onclick="showTab('tab-shodan',this)">Shodan</button>
+      <button class="tab" onclick="showTab('tab-dns',this)">DNS / WHOIS</button>
+      <button class="tab" onclick="showTab('tab-ssl',this)">SSL Cert</button>
+      <button class="tab" onclick="showTab('tab-feeds',this)">Threat Feeds</button>
+      <button class="tab" onclick="showTab('tab-recs',this)">Recommendations</button>
+    </div>
+    <div id="tab-osint"><div class="grid-2" id="osint-panels"></div></div>
+    <div id="tab-shodan" style="display:none"><div id="shodan-panel"></div></div>
+    <div id="tab-dns"    style="display:none"><div class="grid-2" id="dns-whois-panels"></div></div>
+    <div id="tab-ssl"    style="display:none"><div id="ssl-panel"></div></div>
+    <div id="tab-feeds"  style="display:none"><div id="feeds-panel"></div></div>
+    <div id="tab-recs"   style="display:none"><div class="card"><div class="card-title">Recommendations</div><div id="recommendations"></div></div></div>
+
+    <div style="margin-top:16px;display:flex;gap:10px">
+      <button class="btn btn-primary" id="pdf-btn" onclick="downloadReport()">◈ PDF REPORT</button>
+      <button class="btn btn-ghost" onclick="resetInv()">NEW INVESTIGATION</button>
+    </div>
+  </div>
+</div>
+
+<!-- WORLD MAP -->
+<div class="section" id="section-map">
+  <div class="page-header">
+    <div class="page-title">// Threat World Map</div>
+    <div class="page-sub">[ GEOGRAPHIC DISTRIBUTION OF ALL INVESTIGATED TARGETS ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+    <div id="world-map"></div>
+  </div>
+  <div class="grid-4">
+    <div class="stat-card card-sm"><div class="stat-label">Map Points</div><div class="stat-value" style="font-size:22px;color:var(--accent)" id="map-count">0</div></div>
+    <div class="stat-card card-sm" style="display:flex;align-items:center;gap:10px">
+      <div style="width:8px;height:8px;background:var(--red);box-shadow:0 0 8px var(--red)"></div>
+      <span style="font-family:var(--mono);font-size:11px">Critical / High</span>
+    </div>
+    <div class="stat-card card-sm" style="display:flex;align-items:center;gap:10px">
+      <div style="width:8px;height:8px;background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></div>
+      <span style="font-family:var(--mono);font-size:11px">Medium</span>
+    </div>
+    <div class="stat-card card-sm" style="display:flex;align-items:center;gap:10px">
+      <div style="width:8px;height:8px;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
+      <span style="font-family:var(--mono);font-size:11px">Low / Clean</span>
+    </div>
+  </div>
+</div>
+
+<!-- IOC EXTRACTOR -->
+<div class="section" id="section-ioc">
+  <div class="page-header">
+    <div class="page-title">// IOC Extractor</div>
+    <div class="page-sub">[ PASTE ANY LOG, EMAIL, OR THREAT REPORT — AUTO-EXTRACT ALL INDICATORS ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Raw Input</div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Paste logs / emails / threat reports / any text</label>
+      <textarea id="ioc-text" placeholder="e.g: Suspicious connection from 185.220.101.45 to malware-c2.xyz&#10;Downloaded hash: 44d88612fea8a8f36de82e1278abb02f&#10;CVE-2021-44228 exploit attempt detected"></textarea>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="extractIOCs()">⚡ EXTRACT IOCs</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('ioc-text').value=''">CLEAR</button>
+    </div>
+  </div>
+  <div id="ioc-results" style="display:none">
+    <div class="card" style="margin-bottom:14px"><div class="card-title">Extracted Indicators</div><div id="ioc-summary"></div></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div class="card-title" style="margin:0">Investigation Queue</div>
+        <button class="btn btn-primary btn-sm" onclick="investigateAll()">⚡ INVESTIGATE ALL</button>
+      </div>
+      <div id="ioc-queue"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PACKET MONITOR -->
+<div class="section" id="section-packets">
+  <div class="page-header">
+    <div class="page-title">// Packet Monitor</div>
+    <div class="page-sub">[ LIVE NETWORK TRAFFIC CAPTURE AND ANOMALY DETECTION ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <div style="font-family:var(--display);font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:6px">CAPTURE DURATION</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <input type="range" id="pkt-dur" min="10" max="120" value="30" style="width:140px;accent-color:var(--accent)">
+          <span id="pkt-dur-lbl" style="font-family:var(--display);font-size:12px;color:var(--accent);font-weight:700;letter-spacing:1px">30s</span>
+        </div>
+      </div>
+      <button class="monitor-btn idle" id="monitor-btn" onclick="toggleMonitor()">
+        <span class="rec-dot"></span>
+        <span id="monitor-btn-text">START CAPTURE</span>
+      </button>
+    </div>
+    <div class="grid-4">
+      <div class="stat-card card-sm"><div class="stat-label">Total Packets</div><div class="stat-value" style="font-size:22px;color:var(--accent)" id="pkt-total">0</div></div>
+      <div class="stat-card card-sm"><div class="stat-label">Suspicious</div><div class="stat-value" style="font-size:22px;color:var(--red)" id="pkt-sus">0</div></div>
+      <div class="stat-card card-sm"><div class="stat-label">TCP</div><div class="stat-value" style="font-size:22px;color:var(--accent2)" id="pkt-tcp">0</div></div>
+      <div class="stat-card card-sm"><div class="stat-label">UDP / DNS</div><div class="stat-value" style="font-size:22px;color:var(--green)" id="pkt-udp">0</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Live Packet Stream</div>
+    <div class="pkt-row pkt-head" style="margin-bottom:6px">
+      <span>Source IP</span><span>Dest IP</span><span>Proto</span><span>Src Port</span><span>Dst Port</span><span>Length</span>
+    </div>
+    <div id="pkt-stream" style="max-height:360px;overflow-y:auto">
+      <div class="empty" style="padding:32px"><div class="empty-text">START CAPTURE TO SEE LIVE PACKETS</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MALWARE SCAN -->
+<div class="section" id="section-malware">
+  <div class="page-header">
+    <div class="page-title">// Malware Scanner</div>
+    <div class="page-sub">[ HASH LOOKUP + FILE ANALYSIS + PATTERN DETECTION ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="grid-2" style="margin-bottom:14px">
+    <div class="card">
+      <div class="card-title">Hash Lookup</div>
+      <div class="field" style="margin-bottom:12px">
+        <label>MD5 / SHA1 / SHA256</label>
+        <input type="text" id="hash-input" placeholder="Enter file hash..."/>
+      </div>
+      <button class="btn btn-primary" onclick="scanHash()" style="width:100%">⚡ SCAN HASH</button>
+      <div id="hash-result" style="margin-top:14px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">File Scan</div>
+      <div id="dropzone" onclick="document.getElementById('file-input').click()"
+        style="border:1px dashed var(--border2);border-radius:2px;padding:32px;text-align:center;cursor:pointer;transition:.2s;margin-bottom:12px;background:var(--panel)">
+        <div style="font-family:var(--display);font-size:11px;color:var(--accent);letter-spacing:2px;margin-bottom:6px">[ DROP FILE ]</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">Click to upload · Max 16MB</div>
+      </div>
+      <input type="file" id="file-input" style="display:none" onchange="scanFile(this)"/>
+      <div id="file-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CASE FILES -->
+<div class="section" id="section-cases">
+  <div class="page-header">
+    <div class="page-title">// Case Files</div>
+    <div class="page-sub">[ FULL SOC CASE MANAGEMENT — STATUS · NOTES · FALSE POSITIVES ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="card-title" style="margin:0">All Investigations</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadCases()">↻ REFRESH</button>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Case ID</th><th>Target</th><th>Type</th><th>Threat Level</th><th>Risk</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody id="cases-tbody"><tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted);font-family:var(--mono)">LOADING...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="case-detail" style="margin-top:16px;display:none">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="card-title" style="margin:0" id="detail-title">CASE DETAIL</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="downloadReportById()">◈ PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('case-detail').style.display='none'">✕ CLOSE</button>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-bottom:16px">
+        <div class="field"><label>Status</label>
+          <select class="status-sel" id="detail-status" onchange="updateStatus()">
+            <option>Open</option><option>In Progress</option><option>Escalated</option><option>Closed</option><option>False Positive</option>
+          </select>
+        </div>
+        <div class="field"><label>Priority</label>
+          <select class="status-sel" id="detail-priority" onchange="updateStatus()">
+            <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+          </select>
+        </div>
+        <div class="field"><label>Assigned To</label>
+          <input type="text" id="detail-assigned" placeholder="Investigator" onchange="updateStatus()"/>
+        </div>
+      </div>
+      <div id="case-detail-content"></div>
+      <div style="margin-top:16px">
+        <div class="card-title">Investigator Notes</div>
+        <div id="case-notes"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input type="text" id="new-note" placeholder="Add note..." style="flex:1;background:var(--panel);border:1px solid var(--border2);border-radius:2px;color:var(--text);padding:9px 12px;font-family:var(--mono);font-size:12px;outline:none"/>
+          <button class="btn btn-primary btn-sm" onclick="addNote()">ADD NOTE</button>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border2)">
+        <button class="btn btn-red btn-sm" onclick="markFalsePositive()">⚑ MARK FALSE POSITIVE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ML RETRAINING -->
+<div class="section" id="section-ml">
+  <div class="page-header">
+    <div class="page-title">// ML Model Retraining</div>
+    <div class="page-sub">[ RANDOM FOREST LEARNS FROM YOUR REAL INVESTIGATION DATA ]</div>
+    <div class="page-line"></div>
+  </div>
+  <div class="grid-2" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-title">Model Status</div>
+      <div class="osint-item"><span class="osint-key">Algorithm</span><span class="osint-val" style="color:var(--accent)">Random Forest Classifier</span></div>
+      <div class="osint-item"><span class="osint-key">Features</span><span class="osint-val">16 threat indicators</span></div>
+      <div class="osint-item"><span class="osint-key">Training Samples</span><span class="osint-val" id="ml-sample-count">Loading...</span></div>
+      <div class="osint-item"><span class="osint-key">Last Retrained</span><span class="osint-val" id="ml-last-train">Never</span></div>
+      <div class="osint-item"><span class="osint-key">Accuracy</span><span class="osint-val" style="color:var(--green)" id="ml-accuracy">—</span></div>
+      <button class="btn btn-primary" onclick="retrainModel()" id="retrain-btn" style="width:100%;margin-top:16px">⚡ RETRAIN MODEL</button>
+      <div id="retrain-result" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Feature Importance</div>
+      <div id="feature-importance"><div class="empty" style="padding:20px"><div class="empty-text">RETRAIN TO SEE RESULTS</div></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Training History</div>
+    <div id="training-history"><div class="empty" style="padding:20px"><div class="empty-text">NO HISTORY YET</div></div></div>
+  </div>
+</div>
+
+</main>
+</div><!-- end shell -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let currentCaseId=null, monitorRunning=false, monitorInterval=null, worldMap=null, mapMarkers=[];
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock(){
+  const now=new Date();
+  document.getElementById('clock').textContent=now.toLocaleTimeString('en-GB');
+  document.getElementById('clock-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+}
+setInterval(updateClock,1000); updateClock();
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+function nav(id){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  document.getElementById('section-'+id).classList.add('active');
+  document.getElementById('nav-'+id).classList.add('active');
+  if(id==='cases') loadCases();
+  if(id==='dashboard') loadDashboard();
+  if(id==='map') initMap();
+  if(id==='ml') loadMLPage();
+}
+
+function showTab(tabId,btn){
+  ['tab-osint','tab-shodan','tab-dns','tab-ssl','tab-feeds','tab-recs'].forEach(t=>document.getElementById(t).style.display=t===tabId?'block':'none');
+  document.querySelectorAll('.tab-row .tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+function log(msg,type='info'){
+  const el=document.getElementById('activity-log');
+  const t=new Date().toLocaleTimeString('en-GB');
+  const cls={error:'log-error',warn:'log-warn',dim:'log-dim'}[type]||'log-info';
+  const div=document.createElement('div'); div.className='log-entry';
+  div.innerHTML=`<span class="log-time">${t}</span><span class="${cls}">${msg}</span>`;
+  el.appendChild(div); el.scrollTop=el.scrollHeight;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard(){
+  const cases=await fetch('/api/cases').then(r=>r.json()).catch(()=>[]);
+  document.getElementById('s-total').textContent=cases.length;
+  document.getElementById('s-crit').textContent=cases.filter(c=>c.threat_level==='CRITICAL').length;
+  document.getElementById('s-high').textContent=cases.filter(c=>c.threat_level==='HIGH').length;
+  document.getElementById('s-clean').textContent=cases.filter(c=>['CLEAN','LOW'].includes(c.threat_level)).length;
+  document.getElementById('case-badge').textContent=cases.length;
+  const recent=document.getElementById('dash-recent');
+  if(!cases.length){ recent.innerHTML='<div class="empty"><div class="empty-icon">◈</div><div class="empty-text">NO INVESTIGATIONS YET</div></div>'; }
+  else recent.innerHTML=cases.slice(0,6).map(c=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(13,32,53,.8)">
+      <div>
+        <div style="font-family:var(--display);font-size:9px;color:var(--accent);letter-spacing:1px">${c.case_id}</div>
+        <div style="font-family:var(--mono);font-size:12px;margin-top:2px">${c.target}</div>
+      </div>
+      ${lvlBadge(c.threat_level)}
+    </div>`).join('');
+  const levels=['CRITICAL','HIGH','MEDIUM','LOW','CLEAN'];
+  const cols={CRITICAL:'var(--red)',HIGH:'var(--orange)',MEDIUM:'var(--yellow)',LOW:'var(--green)',CLEAN:'var(--green)'};
+  const counts=levels.map(l=>cases.filter(c=>c.threat_level===l).length);
+  const mx=Math.max(...counts,1);
+  document.getElementById('dash-chart').innerHTML=cases.length?`
+    <div style="display:flex;gap:10px;align-items:flex-end;height:90px;padding:0 8px">
+      ${levels.map((l,i)=>`<div style="flex:1;text-align:center">
+        <div style="font-family:var(--display);font-size:9px;color:var(--muted);margin-bottom:3px">${counts[i]}</div>
+        <div style="height:${Math.max(4,(counts[i]/mx)*72)}px;background:${cols[l]};border-radius:0;opacity:${counts[i]?1:.15};box-shadow:${counts[i]?`0 0 10px ${cols[l]}`:'none'};transition:.4s"></div>
+        <div style="font-family:var(--display);font-size:7px;color:var(--muted);margin-top:4px;letter-spacing:1px">${l}</div>
+      </div>`).join('')}
+    </div>`:'<div class="empty"><div class="empty-text">NO DATA</div></div>';
+}
+
+// ── Investigation ─────────────────────────────────────────────────────────────
+async function runInvestigation(){
+  const target=document.getElementById('inv-target').value.trim();
+  const type=document.getElementById('inv-type').value;
+  const name=document.getElementById('inv-name').value.trim()||'Analyst';
+  if(!target){alert('Enter a target');return;}
+  const btn=document.getElementById('inv-btn');
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>SCANNING...';
+  document.getElementById('inv-results').style.display='none';
+  log(`INVESTIGATION STARTED: ${target} [${type.toUpperCase()}]`);
+  try {
+    const r=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,target_type:type,investigator:name})});
+    const d=await r.json();
+    if(d.error) throw new Error(d.error);
+    currentCaseId=d.case_id;
+    log(`CASE CREATED: ${d.case_id} | SCORE: ${d.risk_score}/100 | LEVEL: ${d.threat_level}`);
+    if(d.risk_score>=50) log(`⚠ ELEVATED RISK DETECTED: ${target}`,'warn');
+    renderResults(d); loadDashboard();
+  } catch(e){log('ERROR: '+e.message,'error');alert('Error: '+e.message);}
+  finally{btn.disabled=false;btn.innerHTML='⚡ EXECUTE';}
+}
+
+function renderResults(d){
+  document.getElementById('inv-results').style.display='block';
+  const score=d.risk_score;
+  const col=score>=75?'var(--red)':score>=50?'var(--orange)':score>=25?'var(--yellow)':'var(--green)';
+  const ring=document.getElementById('gauge-ring');
+  ring.style.strokeDashoffset=314-(score/100)*314;
+  ring.style.stroke=score>=75?'#ff2d55':score>=50?'#ff8c00':score>=25?'#ffe600':'#00ff88';
+  const cls=score>=75?'ring-critical':score>=50?'ring-high':score>=25?'ring-medium':'ring-clean';
+  document.getElementById('gauge-svg').className=cls;
+  document.getElementById('gauge-num').textContent=score;
+  document.getElementById('result-score').textContent=score;
+  document.getElementById('result-score').style.color=col;
+  document.getElementById('result-score').style.textShadow=`0 0 30px ${col}`;
+  const lb=document.getElementById('result-level');
+  lb.textContent=d.threat_level; lb.className='threat-badge';
+  lb.style.background=col.replace('var(--red)','rgba(255,45,85,.15)').replace('var(--orange)','rgba(255,140,0,.15)').replace('var(--yellow)','rgba(255,230,0,.15)').replace('var(--green)','rgba(0,255,136,.15)');
+  lb.style.color=col; lb.style.border=`1px solid ${col}`; lb.style.boxShadow=`0 0 12px ${col}40`;
+  document.getElementById('risk-factors').innerHTML=(d.factors||[]).length
+    ?d.factors.map(f=>`<div style="margin-bottom:2px"><span style="color:var(--accent)">›</span> ${f}</div>`).join('')
+    :'<div style="color:var(--dim)">NO SIGNIFICANT RISK FACTORS</div>';
+  const ml=d.ml||{};
+  const mlCol=(ml.ml_score||0)>=75?'var(--red)':(ml.ml_score||0)>=50?'var(--orange)':(ml.ml_score||0)>=25?'var(--yellow)':'var(--green)';
+  document.getElementById('ml-result-panel').innerHTML=`
+    <div style="font-family:var(--display);font-size:28px;font-weight:900;color:${mlCol};text-shadow:0 0 20px ${mlCol}">${ml.ml_score||0}%</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">MALICIOUS PROBABILITY</div>
+    <div style="font-family:var(--display);font-size:10px;margin-top:6px;color:${mlCol};letter-spacing:1px">${ml.verdict||'—'}</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:2px">${ml.method||'—'}</div>`;
+  const osint=d.osint||{},vt=osint.virustotal||{},ab=osint.abuseipdb||{},geo=osint.geolocation||{};
+  document.getElementById('osint-panels').innerHTML=
+    osintCard('VirusTotal',[['Malicious',vt.malicious??'—'],['Suspicious',vt.suspicious??'—'],['Harmless',vt.harmless??'—'],['Country',vt.country??'—'],['AS Owner',vt.as_owner??'—'],['Reputation',vt.reputation??'—']])+
+    osintCard('AbuseIPDB',[['Abuse Score',(ab.abuse_score!=null?ab.abuse_score+'%':'—')],['Reports',ab.total_reports??'—'],['Country',ab.country??'—'],['ISP',ab.isp??'—'],['Tor Node',ab.is_tor?'⚠ YES':'No'],['Last Report',(ab.last_reported||'—').slice(0,10)]])+
+    osintCard('Geolocation',[['IP',geo.ip??'—'],['City',geo.city??'—'],['Region',geo.region??'—'],['Country',geo.country??'—'],['ISP',geo.isp??'—'],['Timezone',geo.timezone??'—']])+
+    osintCard('Open Ports',(osint.open_ports||[]).length?osint.open_ports.map(p=>[`Port ${p.port}`,p.service+' — '+p.state.toUpperCase()]):[['Status','NO SUSPICIOUS PORTS FOUND']]);
+  const sh=d.shodan||{};
+  document.getElementById('shodan-panel').innerHTML=sh.status?`
+    <div class="grid-2">
+      ${osintCard('Shodan Host Info',[['Org',sh.org||'—'],['Country',sh.country||'—'],['City',sh.city||'—'],['ASN',sh.asn||'—'],['OS',sh.os||'Unknown'],['Updated',(sh.last_update||'—').slice(0,10)]])}
+      <div class="card"><div class="card-title">Open Ports (${(sh.ports||[]).length})</div>
+        ${(sh.ports||[]).map(p=>`<span style="display:inline-block;background:var(--panel);border:1px solid var(--border2);padding:3px 8px;margin:2px;font-family:var(--mono);font-size:10px;color:var(--accent)">${p}</span>`).join('')||'<div style="color:var(--dim);font-family:var(--mono);font-size:11px">NO PORTS FOUND</div>'}
+        ${(sh.vulns||[]).length?`<div class="card-title" style="margin-top:14px">CVEs (${sh.vulns.length})</div>${sh.vulns.map(v=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(13,32,53,.8)"><span style="font-family:var(--mono);font-size:10px;color:var(--red)">${v.cve}</span><span style="font-family:var(--display);font-size:9px;color:var(--orange)">CVSS ${v.cvss}</span></div>`).join('')}`:''}
+      </div>
+    </div>`:
+    '<div class="card"><div style="color:var(--dim);font-family:var(--mono);font-size:11px">SHODAN DATA NOT AVAILABLE FOR THIS TARGET TYPE</div></div>';
+  const dns=d.dns||{},wh=d.whois||{};
+  document.getElementById('dns-whois-panels').innerHTML=
+    (dns.domain?osintCard('DNS Analysis',[['Domain',dns.domain||'—'],['Entropy',dns.entropy?.toFixed(2)||'—'],['DGA Suspected',dns.dga_suspected?'⚠ YES':'No'],['DNS Tunneling',dns.dns_tunneling?'⚠ YES':'No'],['Fast-Flux',dns.fast_flux?'⚠ YES':'No'],['Verdict',dns.verdict||'—']]):'<div class="card"><div style="color:var(--dim);font-family:var(--mono);font-size:11px">DNS ANALYSIS NOT AVAILABLE FOR THIS TYPE</div></div>')+
+    (wh.domain?osintCard('WHOIS',[['Registered',wh.registered||'—'],['Age',wh.age_days!=null?wh.age_days+' DAYS':'Unknown'],['Expires',wh.expires||'—'],['Registrar',wh.registrar||'—'],['Registrant',wh.registrant||'—'],['Verdict',wh.verdict||'—']]):'<div class="card"><div style="color:var(--dim);font-family:var(--mono);font-size:11px">WHOIS NOT AVAILABLE FOR THIS TYPE</div></div>');
+  const ssl=d.ssl||{},cert=ssl.certificate||{};
+  document.getElementById('ssl-panel').innerHTML=ssl.domain?
+    `<div class="card">${osintCard('SSL Certificate',[['Subject CN',cert.subject_cn||'—'],['Issuer',cert.issuer_org||'—'],['Valid From',cert.not_before||'—'],['Valid Until',cert.not_after||'—'],['Cert Age',cert.cert_age_days!=null?cert.cert_age_days+' days':'—'],['TLS Version',cert.tls_version||'—'],['Verdict',ssl.verdict||'—']])}</div>`
+    :'<div class="card"><div style="color:var(--dim);font-family:var(--mono);font-size:11px">SSL ANALYSIS NOT AVAILABLE FOR THIS TYPE</div></div>';
+  const fd=d.feed||{};
+  document.getElementById('feeds-panel').innerHTML=`<div class="card"><div class="card-title">Threat Intelligence Feeds</div>
+    <div class="alert ${fd.found?'alert-error':'alert-success'}" style="margin-bottom:10px">
+      ${fd.found?'🚨 TARGET FOUND IN THREAT INTELLIGENCE FEED!':'✅ TARGET NOT FOUND IN ANY THREAT FEED'}
+    </div>
+    ${(fd.details||[]).map(det=>`<div class="osint-item"><span class="osint-key">${det.feed}</span><span class="osint-val">${det.malware||det.status||'Flagged'}</span></div>`).join('')}
+  </div>`;
+  document.getElementById('recommendations').innerHTML=(d.recommendations||[]).map((r,i)=>`
+    <div class="rec-item"><div class="rec-num">${i+1}</div><div>${r}</div></div>`).join('')||'<div style="color:var(--dim);font-family:var(--mono);font-size:11px">NO RECOMMENDATIONS GENERATED</div>';
+}
+
+function osintCard(title,rows){
+  return `<div class="card"><div class="card-title">${title}</div>
+    ${rows.map(([k,v])=>`<div class="osint-item"><span class="osint-key">${k}</span><span class="osint-val">${v}</span></div>`).join('')}
+  </div>`;
+}
+function resetInv(){document.getElementById('inv-results').style.display='none';currentCaseId=null;}
+async function downloadReport(){
+  if(!currentCaseId) return;
+  const btn=document.getElementById('pdf-btn'); btn.textContent='GENERATING...';
+  try{const r=await fetch(`/api/report/${currentCaseId}`,{method:'POST'});if(r.ok){const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`CyberTrace_${currentCaseId}.pdf`;a.click();URL.revokeObjectURL(url);}else alert('Failed');}
+  catch(e){alert('Error: '+e.message);}finally{btn.textContent='◈ PDF REPORT';}
+}
+
+// ── World Map ─────────────────────────────────────────────────────────────────
+function initMap(){
+  if(!worldMap){
+    worldMap=L.map('world-map',{zoomControl:true}).setView([20,0],2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(worldMap);
+  }
+  loadMapData();
+}
+async function loadMapData(){
+  const points=await fetch('/api/map/data').then(r=>r.json()).catch(()=>[]);
+  document.getElementById('map-count').textContent=points.length;
+  mapMarkers.forEach(m=>worldMap.removeLayer(m)); mapMarkers=[];
+  points.forEach(p=>{
+    const col={CRITICAL:'#ff2d55',HIGH:'#ff8c00',MEDIUM:'#ffe600',LOW:'#00ff88',CLEAN:'#00ff88'}[p.threat_level]||'#3a6080';
+    const marker=L.circleMarker([p.lat,p.lng],{radius:p.risk_score>=75?10:p.risk_score>=50?8:6,fillColor:col,color:col,weight:1,opacity:.9,fillOpacity:.7}).addTo(worldMap);
+    marker.bindPopup(`<div style="font-family:'Share Tech Mono',monospace;color:#c8e6f5;background:#08121c;padding:10px;border:1px solid #0d2035;min-width:160px;font-size:11px">
+      <div style="font-family:Orbitron;font-size:9px;color:${col};letter-spacing:1px;margin-bottom:6px">${p.threat_level}</div>
+      <div style="font-weight:700;margin-bottom:4px">${p.target}</div>
+      <div>Score: ${p.risk_score}/100</div>
+      <div>${p.city}, ${p.country}</div>
+      <div style="color:#3a6080;font-size:9px;margin-top:4px">${p.case_id}</div>
+    </div>`);
+    mapMarkers.push(marker);
+  });
+}
+
+// ── IOC Extractor ─────────────────────────────────────────────────────────────
+async function extractIOCs(){
+  const text=document.getElementById('ioc-text').value.trim();
+  if(!text){alert('Enter some text');return;}
+  log('EXTRACTING IOCs FROM INPUT TEXT...');
+  const d=await fetch('/api/ioc/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
+  renderIOCs(d);
+  log(`IOC EXTRACTION COMPLETE: ${d.total_found} INDICATORS FOUND`);
+}
+function renderIOCs(d){
+  document.getElementById('ioc-results').style.display='block';
+  const summary=document.getElementById('ioc-summary');
+  if(!d.total_found){summary.innerHTML='<div class="alert alert-info">NO IOCs FOUND IN PROVIDED TEXT</div>';return;}
+  const typeColors={IPS:'var(--red)',DOMAINS:'var(--orange)',URLS:'var(--accent2)',MD5:'var(--purple)',SHA256:'var(--purple)',SHA1:'var(--purple)',EMAILS:'var(--accent)',CVES:'var(--yellow)'};
+  summary.innerHTML=(d.summary||[]).map(s=>`
+    <div style="margin-bottom:14px">
+      <div style="font-family:var(--display);font-size:9px;font-weight:700;color:${typeColors[s.type]||'var(--muted)'};margin-bottom:6px;letter-spacing:2px">${s.type} — ${s.count} FOUND</div>
+      <div>${s.items.map(item=>`<span class="ioc-tag" onclick="quickInvestigate('${item}','${s.type.toLowerCase().includes('ip')?'ip':s.type.toLowerCase().includes('domain')?'domain':s.type.toLowerCase().includes('hash')||s.type.toLowerCase().includes('md5')||s.type.toLowerCase().includes('sha')?'hash':'url'}')">${item}</span>`).join('')}
+      ${s.count>5?`<span style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:6px">+${s.count-5} more</span>`:''}</div>
+    </div>`).join('');
+  const queue=document.getElementById('ioc-queue');
+  const items=(d.investigation_queue||[]).slice(0,10);
+  queue.innerHTML=items.length?`<table class="tbl"><thead><tr><th>Target</th><th>Type</th><th>Action</th></tr></thead><tbody>
+    ${items.map(q=>`<tr><td>${q.target}</td><td>${lvlBadge_type(q.type)}</td><td><button class="btn btn-ghost btn-sm" onclick="quickInvestigate('${q.target}','${q.type}')">INVESTIGATE →</button></td></tr>`).join('')}
+  </tbody></table>`:'<div style="color:var(--dim);font-family:var(--mono);font-size:11px">NO INVESTIGATABLE ITEMS</div>';
+}
+function quickInvestigate(target,type){document.getElementById('inv-target').value=target;document.getElementById('inv-type').value=type;nav('investigate');runInvestigation();}
+async function investigateAll(){
+  const text=document.getElementById('ioc-text').value.trim();
+  const d=await fetch('/api/ioc/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
+  const queue=(d.investigation_queue||[]).slice(0,5);
+  if(!queue.length){alert('No targets to investigate');return;}
+  log(`BATCH INVESTIGATING ${queue.length} IOCs...`,'warn');
+  for(const item of queue){document.getElementById('inv-target').value=item.target;document.getElementById('inv-type').value=item.type;nav('investigate');await runInvestigation();await new Promise(r=>setTimeout(r,1200));}
+}
+
+// ── Packet Monitor ────────────────────────────────────────────────────────────
+document.getElementById('pkt-dur').addEventListener('input',function(){document.getElementById('pkt-dur-lbl').textContent=this.value+'s';});
+async function toggleMonitor(){
+  const btn=document.getElementById('monitor-btn');
+  if(!monitorRunning){
+    monitorRunning=true;btn.className='monitor-btn running';document.getElementById('monitor-btn-text').textContent='STOP CAPTURE';
+    document.getElementById('pkt-stream').innerHTML='';
+    const dur=document.getElementById('pkt-dur').value;
+    await fetch('/api/packets/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({case_id:currentCaseId,duration:parseInt(dur)})});
+    log('PACKET CAPTURE STARTED');
+    monitorInterval=setInterval(pollPackets,800);
+    setTimeout(()=>{if(monitorRunning)toggleMonitor();},parseInt(dur)*1000+500);
+  } else {
+    monitorRunning=false;btn.className='monitor-btn idle';document.getElementById('monitor-btn-text').textContent='START CAPTURE';
+    clearInterval(monitorInterval);await fetch('/api/packets/stop',{method:'POST'});log('PACKET CAPTURE STOPPED');
+  }
+}
+async function pollPackets(){
+  const d=await fetch('/api/packets/live').then(r=>r.json()).catch(()=>({}));
+  const s=d.stats||{};
+  document.getElementById('pkt-total').textContent=s.total||0;
+  document.getElementById('pkt-sus').textContent=s.suspicious||0;
+  document.getElementById('pkt-tcp').textContent=s.TCP||0;
+  document.getElementById('pkt-udp').textContent=(s.UDP||0)+(s.DNS||0);
+  const stream=document.getElementById('pkt-stream');
+  (d.packets||[]).slice(-4).forEach(p=>{
+    const row=document.createElement('div');row.className='pkt-row'+(p.suspicious?' pkt-suspicious':'');
+    const pc={TCP:'#0af',UDP:'#00ffe7',DNS:'#bf5fff',HTTP:'#00ff88',ICMP:'#ff8c00',TLS:'#ff2d55'}[p.protocol]||'#3a6080';
+    row.innerHTML=`<span>${p.src_ip||'—'}</span><span>${p.dst_ip||'—'}</span><span style="color:${pc};font-weight:700">${p.protocol||'—'}</span><span>${p.src_port||'—'}</span><span>${p.dst_port||'—'}</span><span>${p.length||'—'}</span>`;
+    stream.insertBefore(row,stream.firstChild);
+    if(stream.children.length>80) stream.removeChild(stream.lastChild);
+  });
+}
+
+// ── Malware ───────────────────────────────────────────────────────────────────
+async function scanHash(){
+  const h=document.getElementById('hash-input').value.trim();if(!h){alert('Enter hash');return;}
+  document.getElementById('hash-result').innerHTML='<span class="spinner"></span>';
+  const d=await fetch('/api/scan/hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:h})}).then(r=>r.json());
+  document.getElementById('hash-result').innerHTML=malwareResult(d);
+  log(`HASH SCAN: ${h.slice(0,12)}... → ${(d.verdict||'').toUpperCase()}`);
+}
+async function scanFile(input){
+  const file=input.files[0];if(!file)return;
+  document.getElementById('file-result').innerHTML='<span class="spinner"></span>';
+  const fd=new FormData();fd.append('file',file);
+  const d=await fetch('/api/scan/file',{method:'POST',body:fd}).then(r=>r.json());
+  document.getElementById('file-result').innerHTML=malwareResult(d);
+  log(`FILE SCAN: ${file.name} → ${(d.verdict||'').toUpperCase()}`);
+}
+function malwareResult(d){
+  const v=d.verdict||'unknown';
+  const cls=v==='malicious'?'alert-error':v==='suspicious'?'alert-warn':'alert-success';
+  const icon=v==='malicious'?'🦠':v==='suspicious'?'⚠':'✅';
+  return `<div class="alert ${cls}" style="flex-direction:column;align-items:flex-start;gap:4px">
+    <div style="font-family:var(--display);font-size:10px;font-weight:700;letter-spacing:2px">${icon} ${v.toUpperCase()}</div>
+    ${d.threat_name?`<div style="font-family:var(--mono);font-size:10px">THREAT: ${d.threat_name}</div>`:''}
+    ${d.hash?`<div style="font-family:var(--mono);font-size:9px;opacity:.6">${d.hash}</div>`:''}
+    ${d.virustotal?.malicious!=null?`<div style="font-size:11px">VIRUSTOTAL: ${d.virustotal.malicious} ENGINES FLAGGED</div>`:''}
+  </div>`;
+}
+
+// ── Cases ─────────────────────────────────────────────────────────────────────
+async function loadCases(){
+  const tbody=document.getElementById('cases-tbody');
+  tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);font-family:var(--mono)">LOADING...</td></tr>';
+  const cases=await fetch('/api/cases').then(r=>r.json()).catch(()=>[]);
+  document.getElementById('case-badge').textContent=cases.length;
+  if(!cases.length){tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--dim);font-family:var(--mono)">NO CASES FOUND</td></tr>';return;}
+  tbody.innerHTML=cases.map(c=>`<tr>
+    <td style="color:var(--accent);font-family:var(--display);font-size:9px;letter-spacing:1px">${c.case_id}</td>
+    <td>${c.target}</td>
+    <td><span class="badge badge-blue">${(c.target_type||'').toUpperCase()}</span></td>
+    <td>${lvlBadge(c.threat_level)}</td>
+    <td style="color:${scoreCol(c.risk_score)};font-family:var(--display);font-size:11px;font-weight:700">${c.risk_score}</td>
+    <td><span class="badge badge-gray" id="status-${c.case_id}">OPEN</span></td>
+    <td style="color:var(--muted)">${(c.timestamp||'').slice(0,10)}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="viewCase('${c.case_id}')">VIEW →</button></td>
+  </tr>`).join('');
+  cases.forEach(async c=>{
+    const s=await fetch(`/api/cases/${c.case_id}/status`).then(r=>r.json()).catch(()=>({status:'Open'}));
+    const el=document.getElementById(`status-${c.case_id}`);
+    if(el){el.textContent=s.status.toUpperCase();el.className=`badge ${s.status==='Closed'?'badge-green':s.status==='False Positive'?'badge-gray':s.status==='Escalated'?'badge-red':'badge-blue'}`;}
+  });
+}
+async function viewCase(caseId){
+  currentCaseId=caseId;
+  const panel=document.getElementById('case-detail');
+  const content=document.getElementById('case-detail-content');
+  panel.style.display='block';
+  content.innerHTML='<div style="text-align:center;padding:24px;font-family:var(--mono);color:var(--muted)"><span class="spinner"></span>LOADING...</div>';
+  document.getElementById('detail-title').textContent=`// CASE: ${caseId}`;
+  panel.scrollIntoView({behavior:'smooth'});
+  const d=await fetch(`/api/cases/${caseId}`).then(r=>r.json());
+  const status=d.status||{};
+  document.getElementById('detail-status').value=status.status||'Open';
+  document.getElementById('detail-priority').value=status.priority||'Medium';
+  document.getElementById('detail-assigned').value=status.assigned_to||'';
+  const col=scoreCol(d.risk_score);
+  content.innerHTML=`<div class="grid-4" style="margin-bottom:14px">
+    <div class="stat-card card-sm"><div class="stat-label">Risk Score</div><div class="stat-value" style="font-size:22px;color:${col};text-shadow:0 0 15px ${col}">${d.risk_score}</div></div>
+    <div class="stat-card card-sm"><div class="stat-label">Threat Level</div><div style="margin-top:8px">${lvlBadge(d.threat_level)}</div></div>
+    <div class="stat-card card-sm"><div class="stat-label">Target</div><div style="font-family:var(--mono);font-size:11px;margin-top:6px;word-break:break-all;color:var(--accent)">${d.target}</div></div>
+    <div class="stat-card card-sm"><div class="stat-label">Investigator</div><div style="font-family:var(--body);font-size:14px;font-weight:600;margin-top:6px">${d.investigator||'—'}</div></div>
+  </div>`;
+  const notes=d.notes||[];
+  document.getElementById('case-notes').innerHTML=notes.length?notes.map(n=>`
+    <div class="note-card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span class="note-author">${n.author}</span>
+        <span class="note-time">${(n.timestamp||'').slice(0,16).replace('T',' ')}</span>
+      </div>
+      <div class="note-body">${n.note}</div>
+    </div>`).join(''):'<div style="color:var(--dim);font-family:var(--mono);font-size:11px;margin-bottom:10px">NO NOTES YET</div>';
+}
+async function updateStatus(){
+  if(!currentCaseId) return;
+  await fetch(`/api/cases/${currentCaseId}/status`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:document.getElementById('detail-status').value,priority:document.getElementById('detail-priority').value,assigned_to:document.getElementById('detail-assigned').value})});
+  log(`CASE ${currentCaseId} STATUS UPDATED`);
+}
+async function addNote(){
+  if(!currentCaseId) return;
+  const note=document.getElementById('new-note').value.trim();if(!note){alert('Enter a note');return;}
+  const author=document.getElementById('inv-name').value||'Analyst';
+  await fetch(`/api/cases/${currentCaseId}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note,author})});
+  document.getElementById('new-note').value='';viewCase(currentCaseId);log(`NOTE ADDED TO CASE ${currentCaseId}`);
+}
+async function markFalsePositive(){
+  if(!currentCaseId) return;
+  const reason=prompt('Reason for marking as false positive:');if(!reason) return;
+  const author=document.getElementById('inv-name').value||'Analyst';
+  await fetch(`/api/cases/${currentCaseId}/false_positive`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason,author})});
+  document.getElementById('detail-status').value='False Positive';
+  log(`CASE ${currentCaseId} MARKED AS FALSE POSITIVE`,'warn');
+}
+async function downloadReportById(){
+  if(!currentCaseId) return;
+  try{const r=await fetch(`/api/report/${currentCaseId}`,{method:'POST'});if(r.ok){const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`CyberTrace_${currentCaseId}.pdf`;a.click();}}
+  catch(e){alert('Error: '+e.message);}
+}
+
+// ── ML Retraining ─────────────────────────────────────────────────────────────
+async function loadMLPage(){
+  const cases=await fetch('/api/cases').then(r=>r.json()).catch(()=>[]);
+  document.getElementById('ml-sample-count').textContent=`${cases.length} real + 15 seed`;
+  const history=await fetch('/api/ml/history').then(r=>r.json()).catch(()=>[]);
+  if(history.length){
+    const last=history[0];
+    document.getElementById('ml-last-train').textContent=(last.timestamp||'').slice(0,16).replace('T',' ');
+    document.getElementById('ml-accuracy').textContent=last.accuracy?last.accuracy+'%':'—';
+    renderFeatureImportance(last.feature_importance||{});
+  }
+  renderTrainingHistory(history);
+}
+async function retrainModel(){
+  const btn=document.getElementById('retrain-btn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>TRAINING...';
+  log('ML MODEL RETRAINING STARTED...','warn');
+  try{
+    const d=await fetch('/api/ml/retrain',{method:'POST'}).then(r=>r.json());
+    document.getElementById('retrain-result').innerHTML=`<div class="alert ${d.status==='success'?'alert-success':'alert-error'}">${d.message}</div>`;
+    if(d.status==='success'){document.getElementById('ml-accuracy').textContent=d.accuracy+'%';renderFeatureImportance(d.feature_importance||{});log(`MODEL RETRAINED: ${d.samples_used} SAMPLES, ACCURACY ${d.accuracy}%`);}
+    loadMLPage();
+  }catch(e){document.getElementById('retrain-result').innerHTML=`<div class="alert alert-error">ERROR: ${e.message}</div>`;}
+  finally{btn.disabled=false;btn.innerHTML='⚡ RETRAIN MODEL';}
+}
+function renderFeatureImportance(imp){
+  const el=document.getElementById('feature-importance');
+  const entries=Object.entries(imp).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!entries.length){el.innerHTML='<div class="empty" style="padding:20px"><div class="empty-text">NO DATA YET</div></div>';return;}
+  const max=entries[0][1];
+  el.innerHTML=entries.map(([k,v])=>`
+    <div class="ml-bar-wrap">
+      <div class="ml-bar-label"><span>${k.replace(/_/g,' ').toUpperCase()}</span><span style="color:var(--accent)">${v}%</span></div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${(v/max)*100}%"></div></div>
+    </div>`).join('');
+}
+function renderTrainingHistory(history){
+  const el=document.getElementById('training-history');
+  if(!history.length){el.innerHTML='<div class="empty" style="padding:20px"><div class="empty-text">NO HISTORY YET</div></div>';return;}
+  el.innerHTML=`<table class="tbl"><thead><tr><th>Date</th><th>Samples</th><th>Real Data</th><th>Accuracy</th><th>Status</th></tr></thead><tbody>
+    ${history.slice(0,10).map(h=>`<tr>
+      <td>${(h.timestamp||'').slice(0,16).replace('T',' ')}</td>
+      <td style="color:var(--accent)">${h.samples_used||0}</td>
+      <td>${h.real_samples||0}</td>
+      <td style="color:var(--green)">${h.accuracy?h.accuracy+'%':'—'}</td>
+      <td><span class="badge ${h.status==='success'?'badge-green':'badge-red'}">${h.status.toUpperCase()}</span></td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function lvlBadge(l){const m={CRITICAL:'badge-red',HIGH:'badge-orange',MEDIUM:'badge-yellow',LOW:'badge-green',CLEAN:'badge-green'};return `<span class="badge ${m[l]||'badge-gray'}">${l||'UNKNOWN'}</span>`;}
+function lvlBadge_type(t){const m={ip:'badge-red',domain:'badge-orange',hash:'badge-purple',url:'badge-blue',email:'badge-green'};return `<span class="badge ${m[t]||'badge-gray'}">${t.toUpperCase()}</span>`;}
+function scoreCol(s){return s>=75?'var(--red)':s>=50?'var(--orange)':s>=25?'var(--yellow)':'var(--green)';}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadDashboard();
+</script>
+</body>
+</html>
